@@ -44,16 +44,7 @@ using Eigen::Vector;
 using Eigen::RowVector;
 using Eigen::Dynamic;
 
-/*
-template<typename T, int Rows, int Cols>
-class MlMatrix
-{
-public:
-	MlMatrix() { };
-
-	Matrix<T, Rows, Cols> matrix;
-};
-*/
+// Declarations ----------
 
 /**
 	Store the dataset (features x examples) and solutions (1 x examples).
@@ -63,12 +54,12 @@ template<typename T, int Features, int Examples>
 class Data
 {
 public:
-	Data() : features(Features), examples(Examples) { };
+	Data() : numFeatures(Features), numExamples(Examples) { };
 
 	Matrix<T, Features, Examples> dataset;	//!< Matrix<T, Features, Examples>
 	RowVector<T, Examples> solutions;		//!< RowVector<T, Examples>
-	const int features;
-	const int examples;
+	const size_t numFeatures;				//!< numFeatures == numParams
+	const size_t numExamples;
 };
 
 
@@ -76,36 +67,62 @@ template<typename T, int Params, int Examples>
 class Hypothesis
 {
 public:
-	Hypothesis() { };
+	Hypothesis(float alpha) : numParams(Params), alpha(alpha) { };
 
 	RowVector<T, Params> parameters;		//!< RowVector<T, Params>
+	const size_t numParams;					//!< numParams == numFeatures
+	float alpha;							//!< Learning rate
 	
-	T compute(Vector<T, Params> features) { return parameters * features; }
-
-	T SquareErrorCostFunction(Data<T, Params, Examples>& data)
-	{ return (0.5 / data.dataset.cols()) * ((parameters * data.dataset - data.solutions).array().pow(2)).sum(); };
-	//{ return (0.5 / data.dataset.cols()) * (parameters * data.dataset - data.solutions).array().pow(2); };
+	T executeHypothesis(Vector<T, Params> features);						//!< Call h(x), where x == features you provide.
+	float SquareErrorCostFunction(Data<T, Params, Examples>& data);			//!< Compute cost function (square error cost function)
+	RowVector<T, Params> optimizeParams(Data<T, Params, Examples>& data);	//!< Execute learning algorithm for optimizing parameters
 };
 
 
-template<typename T, int Params>
-class SquareErrorCostFunction
+template<typename T, int Features, int Examples>
+class MLalgorithm
 {
+	Data<T, Features, Examples> data;				//!< Dataset & Solutions
+	Hypothesis<T, Features, Examples> h;			//!< Hypothesis & Learning algorithm
+
 public:
-	SquareErrorCostFunction() { };
-
-	//double compute(
-	//	RowVector<T, Params>& parameters, 
-	//	Matrix<T, Features, Examples>& dataset,
-	//	) 
-	//{ return (0.5 / dataset.cols()) * (parameters * dataset - solutions)^2; };
+	MLalgorithm(float alpha) : Data(), h(alpha) { };
 };
 
 
-class LearnAlgorithm
+// Definitions ----------
+
+template<typename T, int Params, int Examples>
+T Hypothesis<T, Params, Examples>::executeHypothesis(Vector<T, Params> features)
 {
+	return parameters * features;
+}
 
+template<typename T, int Params, int Examples>
+float Hypothesis<T, Params, Examples>::SquareErrorCostFunction(Data<T, Params, Examples>& data)
+{
+	return (0.5 / data.dataset.cols()) * ((parameters * data.dataset - data.solutions).array().pow(2)).sum();
 };
 
+template<typename T, int Params, int Examples>
+RowVector<T, Params> Hypothesis<T, Params, Examples>::optimizeParams(Data<T, Params, Examples>& data)
+{
+	// parameter - alpha * (1/numExamples) * sum((parameters * dataset - solutions) (*) feature)
+	// newVecOfParams = Vvec(params)T - alpha * (1/numExamples) * sum((params * dataset - solutions) (*) dataset)
+	//                                                            |                                  |
+	//                                                        sum rows						  wise mult. rows (left operand is rowVec that multiplies a matrix)
+
+	return
+		(
+			parameters.transpose()
+			- (alpha / data.numExamples) * 
+			(
+				(
+					data.dataset.array().rowwise() * 
+					(parameters * data.dataset - data.solutions).array()
+				).rowwise().sum()
+			).matrix()
+		).transpose();
+}
 
 #endif
