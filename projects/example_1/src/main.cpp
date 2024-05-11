@@ -19,7 +19,7 @@ int main(int argc, char* argv[])
 	int J = hyp.SquareErrorCostFunction(data);
 	RowVector<float, features> optimum = hyp.optimizeParams(data);
 
-	std::cout << optimum << " == -207 -360 -590.5 \n\n";
+	std::cout << optimum << '\n' << "  -207   -360 -590.5 \n\n";
 	//std::cout
 	//	<< data.dataset << "\n\n"
 	//	<< data.solutions << "\n\n"

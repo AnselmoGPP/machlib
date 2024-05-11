@@ -42,9 +42,39 @@
 using Eigen::Matrix;
 using Eigen::Vector;
 using Eigen::RowVector;
-using Eigen::Dynamic;
+//using Eigen::Dynamic;
 
 // Declarations ----------
+
+/*
+	Linear regression (GD, Normal equation)
+	Logistic regression (GD)
+*/
+
+enum MlAlgorithm {
+	LinReg_NormalEc,			//!< Linear regression, Normal equation (anallytical solution)
+	LinReg_BatchGradDescent,	//!< Linear regression, Batch Gradient Descent
+	LogReg_BatchGradDescent		//!< Logistic regression, Batch Gradient Descent
+};
+
+enum Optimization { 
+	NormalEquation,			//!< for LinearRegression models
+	BatchGradientDescent	//!< for Linear & Logistic regression models
+};
+
+template<typename T, int Features>
+struct MlAlgoInfo
+{
+	MlAlgoInfo() : numFeatures(Features), range(Features, 0), mean(Features, 0) { };
+
+	const int numFeatures;
+	size_t numExamples;
+	MlAlgorithm algorithm;			//!< Hypothesis & Optimization algorithm
+	std::vector<T> range;			//!< for Feature Scaling
+	std::vector<T> mean;			//!< for Mean Normalization
+	float alpha;					//!< Learning rate
+};
+
 
 /**
 	Store the dataset (features x examples) and solutions (1 x examples).
@@ -119,8 +149,8 @@ RowVector<T, Params> Hypothesis<T, Params, Examples>::optimizeParams(Data<T, Par
 			(
 				(
 					data.dataset.array().rowwise() * 
-					(parameters * data.dataset - data.solutions).array()
-				).rowwise().sum()
+					(parameters * data.dataset - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
+				).rowwise().sum()		// Get a vector with the sum of the contents of each row
 			).matrix()
 		).transpose();
 }
