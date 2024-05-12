@@ -38,28 +38,23 @@
 #include "Eigen/UmfPackSupport"
 */
 
-//using Eigen::MatrixXd;
 using Eigen::Matrix;
 using Eigen::Vector;
-using Eigen::RowVector;
-//using Eigen::Dynamic;
-
-// Declarations ----------
+//using Eigen::RowVector;
 
 /*
-	Linear regression (GD, Normal equation)
-	Logistic regression (GD)
-	Model h(x)
-	Cost function
-	Optimization algorithm (Normal ec., Batch Grad. Descent)
+	Conventions:
+	Vectors are vertical by default.
+	Dataset is examples x features.
+
+	Terms:
+	Models (h(x)): Linear regression, Logistic regression.
+	Cost function: Square error.
+	Optimization algorithms: Normal equation (lin. reg.), Batch gradient descent.
 	Learning algorithm (cost function + optimization algorithm)
 */
 
-//enum MlAlgorithm {
-//	LinReg_NormalEc,			//!< Linear regression, Normal equation (anallytical solution)
-//	LinReg_BatchGradDescent,	//!< Linear regression, Batch Gradient Descent
-//	LogReg_BatchGradDescent		//!< Logistic regression, Batch Gradient Descent
-//};
+// Declarations ----------
 
 enum ModelType {
 	LinearRegression,
@@ -73,19 +68,19 @@ enum OptimizationType {
 
 
 /**
-	Store the dataset (features x examples) and solutions (1 x examples).
+	Store the dataset (examples x features) and solutions (1 x examples).
 	In dataset, the first row should be all 1s (for the independent term of h)
 */
-template<typename T, int Features, int Examples>
+template<typename T, int Examples, int Features>
 class Data
 {
 public:
-	Data() : numFeatures(Features), numExamples(Examples) { };
+	Data() : numExamples(Examples), numFeatures(Features) { };
 
-	Matrix<T, Features, Examples> dataset;	//!< Matrix<T, Features, Examples>
-	RowVector<T, Examples> solutions;		//!< RowVector<T, Examples>
-	const size_t numFeatures;				//!< numFeatures == numParams
+	Matrix<T, Examples, Features> dataset;	//!< Matrix<T, Examples, Features>
+	Vector<T, Examples> solutions;			//!< Vector<T, Examples>
 	const size_t numExamples;
+	const size_t numFeatures;				//!< numFeatures == numParams
 	std::vector<T> range;					//!< for Feature Scaling
 	std::vector<T> mean;					//!< for Mean Normalization
 };
@@ -94,43 +89,30 @@ public:
 /**
 	Hypothesis & Learning algorithm (cost function + optimization algorithm)
 */
-template<typename T, int Params, int Examples>
+template<typename T, int Examples, int Params>
 class Model
 {
 	ModelType modelType;
 	OptimizationType optimizationType;
-	/*
-	// Hypothesis/Model
-	T executeLinReg();
-	T executeLogReg();
 
-	// Cost function
-	double squareErrorLinReg();
-	double squareErrorLogReg();
-
-	// Optimization
-	RowVector<T, Params> optimizeLinReg();
-	RowVector<T, Params> optimizeLogReg();
-	RowVector<T, Params> normalEquation();
-	*/
 public:
 	Model(ModelType modelType, OptimizationType optimizationType, double alpha)
 		: modelType(modelType), optimizationType(optimizationType), alpha(alpha) { }
 
-	RowVector<T, Params> parameters;		//!< RowVector<T, Params>
+	Vector<T, Params> parameters;			//!< Vector<T, Params>
 	double alpha;							//!< Learning rate
 
 	T executeHypothesis(Vector<T, Params> features);						//!< Call h(x), where x == features you provide.
-	float getSquareErrorCostFunction(Data<T, Params, Examples>& data);		//!< Compute cost function (square error cost function)
-	RowVector<T, Params> optimizeParams(Data<T, Params, Examples>& data);	//!< Execute learning algorithm for optimizing parameters
+	float getSquareErrorCostFunction(Data<T, Examples, Params>& data);		//!< Compute cost function (square error cost function)
+	Vector<T, Params> optimizeParams(Data<T, Examples, Params>& data);	//!< Execute learning algorithm for optimizing parameters
 };
 
 
-template<typename T, int Features, int Examples>
+template<typename T, int Examples, int Features>
 class MlAlgo
 {
-	Data<T, Features, Examples> data;				//!< Dataset & Solutions
-	Model<T, Features, Examples> h;			//!< Hypothesis & Learning algorithm
+	Data<T, Examples, Features> data;		//!< Dataset & Solutions
+	Model<T, Examples, Features> h;			//!< Hypothesis & Learning algorithm
 
 	//MlAlgorithm algoType;			//!< Hypothesis & Optimization algorithm
 	std::vector<T> range;			//!< for Feature Scaling
@@ -144,21 +126,17 @@ public:
 
 // Definitions ----------
 
-template<typename T, int Params, int Examples>
-T Model<T, Params, Examples>::executeHypothesis(Vector<T, Params> features)	// <<< reference?
+template<typename T, int Examples, int Params>
+T Model<T, Examples, Params>::executeHypothesis(Vector<T, Params> features)	// <<< reference?
 {
-	switch (optimizationType)
+	switch (modelType)
 	{
-	case NormalEquation:	// THETA = (X*T X)^-1 (X^T Y)
-		//return 
-		//	(features.dataset.transpose() * features.dataset).inverse() *	
-		//	features.dataset.transpose() * 
-		//	features.solutions;
-
+	case LinearRegression:
+		return parameters.transpose() * features;
 		break;
 
-	case BatchGradDescent:
-		return parameters * features;
+	case LogisticRegression:
+		// <<<
 		break;
 	
 	default:
@@ -166,18 +144,19 @@ T Model<T, Params, Examples>::executeHypothesis(Vector<T, Params> features)	// <
 	}
 }
 
-template<typename T, int Params, int Examples>
-float Model<T, Params, Examples>::getSquareErrorCostFunction(Data<T, Params, Examples>& data)
+template<typename T, int Examples, int Params>
+float Model<T, Examples, Params>::getSquareErrorCostFunction(Data<T, Examples, Params>& data)
 {
 	switch (modelType)
 	{
 	case LinearRegression:
 		return 
-			(0.5 / data.dataset.cols()) * 
-			((parameters * data.dataset - data.solutions).array().pow(2)).sum();
+			(0.5 / data.numExamples) * 
+			((data.dataset * parameters - data.solutions).array().pow(2)).sum();
 		break;
 
 	case LogisticRegression:
+		// <<<
 		break;
 
 	default:
@@ -185,74 +164,55 @@ float Model<T, Params, Examples>::getSquareErrorCostFunction(Data<T, Params, Exa
 	}
 };
 
-template<typename T, int Params, int Examples>
-RowVector<T, Params> Model<T, Params, Examples>::optimizeParams(Data<T, Params, Examples>& data)
+template<typename T, int Examples, int Params>
+Vector<T, Params> Model<T, Examples, Params>::optimizeParams(Data<T, Examples, Params>& data)
 {
 	switch (modelType)
 	{
 	case LinearRegression:
-		return
-			(
-				parameters.transpose()
-				- (alpha / data.numExamples) * 
-				(
-					(
-						data.dataset.array().rowwise() * 
-						(parameters * data.dataset - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
-					).rowwise().sum()											// Get a vector with the sum of the contents of each row
-				).matrix()
-			).transpose();
-		break;
+		{
+			switch (optimizationType)
+			{
+			case NormalEquation:	// THETA = (X*T X)^-1 (X^T Y)
+				{
+					Matrix<T, Params, Examples> datasetTransposed = data.dataset.transpose();
+					return
+						(datasetTransposed * data.dataset).completeOrthogonalDecomposition().pseudoInverse() *
+						(datasetTransposed * data.solutions);
+				}
+				break;
 
+			case BatchGradDescent:	// thetaj = thetaj - (alpha/m) sum((h(xi)-yi) xij)	(i: example) (j: feature)
+				return
+					parameters
+					- (alpha / data.numExamples) *
+					(
+						(
+							data.dataset.array().colwise() *
+							(data.dataset * parameters - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
+						).colwise().sum()											// Get a vector with the sum of the contents of each row
+					).matrix().transpose();
+				break;
+
+			default:
+				break;
+			}
+		}
 	case LogisticRegression:
-		break;
+		{
+			switch (optimizationType)
+			{
+			case BatchGradDescent:
+				break;
+			}
+			break;
+		}
 
 	default:
 		break;
 	}
+
+	std::cout << "Non valid combination of ModelType and OptimizationType" << std::endl;
 }
 
-/*
-template<typename T, int Params, int Examples>
-T Model<T, Params, Examples>::executeLinReg()
-{
-
-}
-
-template<typename T, int Params, int Examples>
-T Model<T, Params, Examples>::executeLogReg()
-{
-
-}
-
-template<typename T, int Params, int Examples>
-double Model<T, Params, Examples>::squareErrorLinReg()
-{
-
-}
-
-template<typename T, int Params, int Examples>
-double Model<T, Params, Examples>::squareErrorLogReg()
-{
-
-}
-
-template<typename T, int Params, int Examples>
-RowVector<T, Params> Model<T, Params, Examples>::optimizeLinReg()
-{
-
-}
-
-template<typename T, int Params, int Examples>
-RowVector<T, Params> Model<T, Params, Examples>::optimizeLogReg()
-{
-
-}
-
-template<typename T, int Params, int Examples>
-RowVector<T, Params> Model<T, Params, Examples>::normalEquation()
-{
-
-}
-*/
 #endif

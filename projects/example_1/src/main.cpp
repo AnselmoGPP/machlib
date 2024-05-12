@@ -6,25 +6,29 @@ int main(int argc, char* argv[])
 	const int features = 3;		// number of features/parameters
 	const int examples = 4;		// number of examples
 
-	Data<float, features, examples> data;
+	Data<double, examples, features> data;
 	data.solutions = { 2, 4, 6, 8 };
-	data.dataset << 
-		1, 2, 3, 4,		// <<< should be full 1s
-		3, 4, 5, 6,
-		6, 7, 8, 9;
+	data.dataset <<
+		1, 3, 6,
+		2, 4, 7,
+		3, 5, 8,
+		4, 6, 9;	// first column may be full of 1s
 
-	Model<float, features, examples> hyp(LinearRegression, BatchGradDescent, 1.f);
-	hyp.parameters = {3, 5, 7};
-	int h = hyp.executeHypothesis(data.dataset.block(0, 2, 3, 1));
-	int J = hyp.getSquareErrorCostFunction(data);
-	RowVector<float, features> optimum = hyp.optimizeParams(data);
+	Model<double, examples, features> model(LinearRegression, NormalEquation, 1.f);
+	model.parameters = {3, 5, 7};
+	int h = model.executeHypothesis(data.dataset.block(2, 0, 1, 3).transpose());
+	int J = model.getSquareErrorCostFunction(data);
+	Vector<double, features> bestParams = model.optimizeParams(data);
 
-	std::cout << optimum << '\n' << "  -207   -360 -590.5 \n\n";
-	//std::cout
-	//	<< data.dataset << "\n\n"
-	//	<< data.solutions << "\n\n"
-	//	<< hyp.parameters << "\n\n"
-	//	<< h << ", " << J << "\n\n";
+	std::cout << "Expected: \n  - 207 - 360 - 590.5 \n  h = 90 \n  J = 3018 \n\n";
+	std::cout
+		<< data.dataset << "\n\n"
+		<< data.solutions << "\n\n"
+		<< model.parameters << "\n\n";
+
+	std::cout 
+		<< bestParams << "\n\n"
+		<< h << ", " << J << "\n\n";
 
 	std::system("pause");
 	return 0;
