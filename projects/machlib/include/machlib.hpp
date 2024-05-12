@@ -49,30 +49,26 @@ using Eigen::RowVector;
 /*
 	Linear regression (GD, Normal equation)
 	Logistic regression (GD)
+	Model h(x)
+	Cost function
+	Optimization algorithm (Normal ec., Batch Grad. Descent)
+	Learning algorithm (cost function + optimization algorithm)
 */
 
-enum MlAlgorithm {
-	LinReg_NormalEc,			//!< Linear regression, Normal equation (anallytical solution)
-	LinReg_BatchGradDescent,	//!< Linear regression, Batch Gradient Descent
-	LogReg_BatchGradDescent		//!< Logistic regression, Batch Gradient Descent
+//enum MlAlgorithm {
+//	LinReg_NormalEc,			//!< Linear regression, Normal equation (anallytical solution)
+//	LinReg_BatchGradDescent,	//!< Linear regression, Batch Gradient Descent
+//	LogReg_BatchGradDescent		//!< Logistic regression, Batch Gradient Descent
+//};
+
+enum ModelType {
+	LinearRegression,
+	LogisticRegression
 };
 
-enum Optimization { 
-	NormalEquation,			//!< for LinearRegression models
-	BatchGradientDescent	//!< for Linear & Logistic regression models
-};
-
-template<typename T, int Features>
-struct MlAlgoInfo
-{
-	MlAlgoInfo() : numFeatures(Features), range(Features, 0), mean(Features, 0) { };
-
-	const int numFeatures;
-	size_t numExamples;
-	MlAlgorithm algorithm;			//!< Hypothesis & Optimization algorithm
-	std::vector<T> range;			//!< for Feature Scaling
-	std::vector<T> mean;			//!< for Mean Normalization
-	float alpha;					//!< Learning rate
+enum OptimizationType {
+	NormalEquation,			//!< Normal equation (anallytical solution)
+	BatchGradDescent		//!< Batch Gradient Descent
 };
 
 
@@ -90,69 +86,166 @@ public:
 	RowVector<T, Examples> solutions;		//!< RowVector<T, Examples>
 	const size_t numFeatures;				//!< numFeatures == numParams
 	const size_t numExamples;
+	std::vector<T> range;					//!< for Feature Scaling
+	std::vector<T> mean;					//!< for Mean Normalization
 };
 
 
+/**
+	Hypothesis & Learning algorithm (cost function + optimization algorithm)
+*/
 template<typename T, int Params, int Examples>
-class Hypothesis
+class Model
 {
+	ModelType modelType;
+	OptimizationType optimizationType;
+	/*
+	// Hypothesis/Model
+	T executeLinReg();
+	T executeLogReg();
+
+	// Cost function
+	double squareErrorLinReg();
+	double squareErrorLogReg();
+
+	// Optimization
+	RowVector<T, Params> optimizeLinReg();
+	RowVector<T, Params> optimizeLogReg();
+	RowVector<T, Params> normalEquation();
+	*/
 public:
-	Hypothesis(float alpha) : numParams(Params), alpha(alpha) { };
+	Model(ModelType modelType, OptimizationType optimizationType, double alpha)
+		: modelType(modelType), optimizationType(optimizationType), alpha(alpha) { }
 
 	RowVector<T, Params> parameters;		//!< RowVector<T, Params>
-	const size_t numParams;					//!< numParams == numFeatures
-	float alpha;							//!< Learning rate
-	
+	double alpha;							//!< Learning rate
+
 	T executeHypothesis(Vector<T, Params> features);						//!< Call h(x), where x == features you provide.
-	float SquareErrorCostFunction(Data<T, Params, Examples>& data);			//!< Compute cost function (square error cost function)
+	float getSquareErrorCostFunction(Data<T, Params, Examples>& data);		//!< Compute cost function (square error cost function)
 	RowVector<T, Params> optimizeParams(Data<T, Params, Examples>& data);	//!< Execute learning algorithm for optimizing parameters
 };
 
 
 template<typename T, int Features, int Examples>
-class MLalgorithm
+class MlAlgo
 {
 	Data<T, Features, Examples> data;				//!< Dataset & Solutions
-	Hypothesis<T, Features, Examples> h;			//!< Hypothesis & Learning algorithm
+	Model<T, Features, Examples> h;			//!< Hypothesis & Learning algorithm
+
+	//MlAlgorithm algoType;			//!< Hypothesis & Optimization algorithm
+	std::vector<T> range;			//!< for Feature Scaling
+	std::vector<T> mean;			//!< for Mean Normalization
+	float alpha;					//!< Learning rate
 
 public:
-	MLalgorithm(float alpha) : Data(), h(alpha) { };
+	MlAlgo(float alpha, std::vector<T>& range, std::vector<T>& mean) { };
 };
 
 
 // Definitions ----------
 
 template<typename T, int Params, int Examples>
-T Hypothesis<T, Params, Examples>::executeHypothesis(Vector<T, Params> features)
+T Model<T, Params, Examples>::executeHypothesis(Vector<T, Params> features)
 {
-	return parameters * features;
+	switch (modelType)
+	{
+	case NormalEquation:
+		break;
+
+	case BatchGradDescent:
+		return parameters * features;
+		break;
+	
+	default:
+		break;
+	}
 }
 
 template<typename T, int Params, int Examples>
-float Hypothesis<T, Params, Examples>::SquareErrorCostFunction(Data<T, Params, Examples>& data)
+float Model<T, Params, Examples>::getSquareErrorCostFunction(Data<T, Params, Examples>& data)
 {
-	return (0.5 / data.dataset.cols()) * ((parameters * data.dataset - data.solutions).array().pow(2)).sum();
+	switch (modelType)
+	{
+	case LinearRegression:
+		return (0.5 / data.dataset.cols()) * ((parameters * data.dataset - data.solutions).array().pow(2)).sum();
+		break;
+
+	case LogisticRegression:
+		break;
+
+	default:
+		break;
+	}
 };
 
 template<typename T, int Params, int Examples>
-RowVector<T, Params> Hypothesis<T, Params, Examples>::optimizeParams(Data<T, Params, Examples>& data)
+RowVector<T, Params> Model<T, Params, Examples>::optimizeParams(Data<T, Params, Examples>& data)
 {
-	// parameter - alpha * (1/numExamples) * sum((parameters * dataset - solutions) (*) feature)
-	// newVecOfParams = Vvec(params)T - alpha * (1/numExamples) * sum((params * dataset - solutions) (*) dataset)
-	//                                                            |                                  |
-	//                                                        sum rows						  wise mult. rows (left operand is rowVec that multiplies a matrix)
-
-	return
-		(
-			parameters.transpose()
-			- (alpha / data.numExamples) * 
+	switch (optimizationType)
+	{
+	case LinearRegression:
+		return
 			(
+				parameters.transpose()
+				- (alpha / data.numExamples) * 
 				(
-					data.dataset.array().rowwise() * 
-					(parameters * data.dataset - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
-				).rowwise().sum()		// Get a vector with the sum of the contents of each row
-			).matrix()
-		).transpose();
+					(
+						data.dataset.array().rowwise() * 
+						(parameters * data.dataset - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
+					).rowwise().sum()											// Get a vector with the sum of the contents of each row
+				).matrix()
+			).transpose();
+		break;
+
+	case LogisticRegression:
+		break;
+
+	default:
+		break;
+	}
 }
 
+/*
+template<typename T, int Params, int Examples>
+T Model<T, Params, Examples>::executeLinReg()
+{
+
+}
+
+template<typename T, int Params, int Examples>
+T Model<T, Params, Examples>::executeLogReg()
+{
+
+}
+
+template<typename T, int Params, int Examples>
+double Model<T, Params, Examples>::squareErrorLinReg()
+{
+
+}
+
+template<typename T, int Params, int Examples>
+double Model<T, Params, Examples>::squareErrorLogReg()
+{
+
+}
+
+template<typename T, int Params, int Examples>
+RowVector<T, Params> Model<T, Params, Examples>::optimizeLinReg()
+{
+
+}
+
+template<typename T, int Params, int Examples>
+RowVector<T, Params> Model<T, Params, Examples>::optimizeLogReg()
+{
+
+}
+
+template<typename T, int Params, int Examples>
+RowVector<T, Params> Model<T, Params, Examples>::normalEquation()
+{
+
+}
+*/
 #endif

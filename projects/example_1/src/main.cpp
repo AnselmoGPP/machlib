@@ -13,10 +13,10 @@ int main(int argc, char* argv[])
 		3, 4, 5, 6,
 		6, 7, 8, 9;
 
-	Hypothesis<float, features, examples> hyp(1.f);
+	Model<float, features, examples> hyp(LinearRegression, BatchGradDescent, 1.f);
 	hyp.parameters = {3, 5, 7};
 	int h = hyp.executeHypothesis(data.dataset.block(0, 2, 3, 1));
-	int J = hyp.SquareErrorCostFunction(data);
+	int J = hyp.getSquareErrorCostFunction(data);
 	RowVector<float, features> optimum = hyp.optimizeParams(data);
 
 	std::cout << optimum << '\n' << "  -207   -360 -590.5 \n\n";
