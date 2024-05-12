@@ -145,11 +145,16 @@ public:
 // Definitions ----------
 
 template<typename T, int Params, int Examples>
-T Model<T, Params, Examples>::executeHypothesis(Vector<T, Params> features)
+T Model<T, Params, Examples>::executeHypothesis(Vector<T, Params> features)	// <<< reference?
 {
-	switch (modelType)
+	switch (optimizationType)
 	{
-	case NormalEquation:
+	case NormalEquation:	// THETA = (X*T X)^-1 (X^T Y)
+		//return 
+		//	(features.dataset.transpose() * features.dataset).inverse() *	
+		//	features.dataset.transpose() * 
+		//	features.solutions;
+
 		break;
 
 	case BatchGradDescent:
@@ -167,7 +172,9 @@ float Model<T, Params, Examples>::getSquareErrorCostFunction(Data<T, Params, Exa
 	switch (modelType)
 	{
 	case LinearRegression:
-		return (0.5 / data.dataset.cols()) * ((parameters * data.dataset - data.solutions).array().pow(2)).sum();
+		return 
+			(0.5 / data.dataset.cols()) * 
+			((parameters * data.dataset - data.solutions).array().pow(2)).sum();
 		break;
 
 	case LogisticRegression:
@@ -181,7 +188,7 @@ float Model<T, Params, Examples>::getSquareErrorCostFunction(Data<T, Params, Exa
 template<typename T, int Params, int Examples>
 RowVector<T, Params> Model<T, Params, Examples>::optimizeParams(Data<T, Params, Examples>& data)
 {
-	switch (optimizationType)
+	switch (modelType)
 	{
 	case LinearRegression:
 		return
