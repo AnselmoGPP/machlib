@@ -32,6 +32,9 @@ using namespace Eigen;
 	statistical methods like Isolation Forest, One-Class SVM, or Gaussian Mixture Models (GMM), as well as deep learning approaches such as Autoencoders
 */
 
+// Use binaryExpr()
+// Use std::move() maybe
+
 // Constants & enums ----------
 
 double e  = 2.71828182845904523536028747135266249;
@@ -54,20 +57,16 @@ template<typename T>
 class Data
 {
 public:
-	Data(size_t numExamples, size_t numFeatures) 
-		: numExamples(numExamples),
-		numFeatures(numFeatures),
-		dataset(numExamples, numFeatures),
-		solutions(numExamples),
-		range(numFeatures),
-		mean(numFeatures) { };
+	Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize);	//!< Data param contains solution + features (in this order).
+	
+	size_t numExamples()   { return dataset.rows(); };
+	size_t numParameters() { return dataset.cols(); };
+	size_t numFeatures()   { return dataset.cols() - 1; };
 
 	Matrix<T, Dynamic, Dynamic> dataset;	//!< Matrix<T, Examples, Features>
 	Vector<T, Dynamic> solutions;			//!< Vector<T, Examples>
-	Vector<T, Dynamic> range;				//!< for Feature Scaling
-	Vector<T, Dynamic> mean;				//!< for Mean Normalization
-	const size_t numExamples;
-	const size_t numFeatures;				//!< numFeatures == numParams
+	RowVector<T, Dynamic> mean;				//!< for Mean Normalization (make mean == 0)
+	RowVector<T, Dynamic> range;			//!< for Feature Scaling (make range [-1, 1])
 };
 
 
@@ -79,11 +78,11 @@ class Model
 {
 	ModelType modelType;
 
-	Vector<T, Dynamic> pow(T base, Vector<T, Dynamic>& exponents);
+	Vector<T, Dynamic> pow_2(T base, Vector<T, Dynamic>& exponents);	// not used
 
 public:
 	Model(ModelType modelType, double alpha, Data<T>& data)
-		: parameters(data.numFeatures), modelType(modelType), alpha(alpha) { }
+		: parameters(data.numParameters()), modelType(modelType), alpha(alpha) { }
 
 	Vector<T, Dynamic> parameters;
 	double alpha;									//!< Learning rate
@@ -97,10 +96,46 @@ public:
 // Definitions ----------
 
 template<typename T>
+Data<T>::Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize)
+	: dataset(data.rows(), data.cols()),
+	solutions(data.rows()),
+	mean(dataset.cols()),
+	range(dataset.cols())
+{
+	// Dataset & Solutions
+	dataset = data;
+	dataset.col(0).setConstant(1);			// first column is full of 1s (independent variable)
+
+	solutions = data.block(0, 0, data.rows(), 1);
+	
+	// Normalization (Mean normalization & Feature scaling)
+	if (normalize)
+	{
+		mean  = (dataset.colwise().sum() / numExamples()).transpose();
+		mean(0, 0) = 0;
+		range = (dataset.colwise().maxCoeff() - dataset.colwise().minCoeff()).transpose();
+		range(0, 0) = 1;
+	}
+	else
+	{
+		mean.setConstant(0);
+		range.setConstant(1);
+	}
+	
+	dataset = (dataset.rowwise() - mean).array().rowwise() / range.array();		// x = (x - mean) / range
+};
+
+template<typename T>
 T Model<T>::model(Vector<T, Dynamic> features)	// < Not a reference because this allows to pass inline-created vector.
 {
-	if (features.size() != parameters.size())	// is numFeatures != numParameters?
-		std::cout << __func__ << " Error: number of features != number of parameters" << std::endl;
+	if (features.size() != (parameters.size() - 1))
+		std::cout << __func__ << " Error: wrong number of features" << std::endl;
+
+	// Add independent variable and normalize
+	Vector<T, Dynamic> normFeatures(parameters.size());
+	normFeatures.row(0).setConstant(1);
+	normFeatures.block(1, 0, parameters.cols(), 1) = features;
+	normFeatures = (dataset.rowwise() - mean).array().rowwise() / range.array();
 
 	switch (modelType)
 	{
@@ -205,7 +240,7 @@ Vector<T, Dynamic> Model<T>::optimization(Data<T>& data)
 }
 
 template<typename T>
-Vector<T, Dynamic> Model<T>::pow(T base, Vector<T, Dynamic>& exponents)
+Vector<T, Dynamic> Model<T>::pow_2(T base, Vector<T, Dynamic>& exponents)
 {
 	for (T& exp : exponents)
 		exp = std::pow(base, exp);

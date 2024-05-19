@@ -3,17 +3,25 @@
 
 int main(int argc, char* argv[])
 {
-	const int features = 3;		// number of features/parameters
-	const int examples = 4;		// number of examples
+	//const int features = 3;		// number of features/parameters
+	//const int examples = 4;		// number of examples
 
-	Data<double> data(examples, features);
-	data.solutions << 2, 4, 6, 8;
-	data.dataset <<
-		1, 3, 6,
-		2, 4, 7,
-		3, 5, 8,
-		4, 6, 9;	// first column may be full of 1s (independent variable)
+	// Get data
+	Matrix<float, Dynamic, Dynamic> myData(4, 3);		// Cols are examples. Rows are solution + features.
+	myData <<
+		2, 2, 4,
+		2, 3, 6,
+		3, 1, 3,
+		1, 2, 2;
 	
+	Data<float> data(myData, true);
+
+	std::cout << data.dataset << std::endl;
+	std::cout << data.solutions << std::endl;
+	std::cout << data.mean << std::endl;
+	std::cout << data.range << std::endl;
+	
+	/*
 	Model<double> model(LinearRegression, 1.f, data);
 	model.parameters << 3, 5, 7;
 	int h = model.model(data.dataset.block(2, 0, 1, 3).transpose());
@@ -28,7 +36,7 @@ int main(int argc, char* argv[])
 	
 		<< bestParams << "\n\n"
 		<< h << ", " << J << "\n\n";
-	
+	*/
 	std::system("pause");
 	return 0;
 }
