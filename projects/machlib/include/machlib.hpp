@@ -60,13 +60,13 @@ public:
 	Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize);	//!< Data param contains solution + features (in this order).
 	
 	size_t numExamples()   { return dataset.rows(); };
-	size_t numParameters() { return dataset.cols(); };
+	size_t numParams() { return dataset.cols(); };
 	size_t numFeatures()   { return dataset.cols() - 1; };
 
 	Matrix<T, Dynamic, Dynamic> dataset;	//!< Matrix<T, Examples, Features>
 	Vector<T, Dynamic> solutions;			//!< Vector<T, Examples>
-	RowVector<T, Dynamic> mean;				//!< for Mean Normalization (make mean == 0)
-	RowVector<T, Dynamic> range;			//!< for Feature Scaling (make range [-1, 1])
+	Vector<T, Dynamic> mean;				//!< for Mean Normalization (make mean == 0)
+	Vector<T, Dynamic> range;				//!< for Feature Scaling (make range [-1, 1])
 };
 
 
@@ -81,15 +81,16 @@ class Model
 	Vector<T, Dynamic> pow_2(T base, Vector<T, Dynamic>& exponents);	// not used
 
 public:
-	Model(ModelType modelType, double alpha, Data<T>& data)
-		: parameters(data.numParameters()), modelType(modelType), alpha(alpha) { }
+	Model(ModelType modelType, double alpha, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
+		: parameters(data.numParams()), modelType(modelType), alpha(alpha), data(dataset, normalize) { }
 
+	Data<T> data;
 	Vector<T, Dynamic> parameters;
-	double alpha;									//!< Learning rate
+	double alpha;								//!< Learning rate
 
-	T model(Vector<T, Dynamic> features);			//!< Call h(x), where x == features you provide.
-	float costFunction(Data<T>& data);				//!< Compute cost function (square error cost function)
-	Vector<T, Dynamic> optimization(Data<T>& data);	//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
+	T model(Vector<T, Dynamic> features);		//!< Call h(x), where x == features you provide.
+	float costFunction();						//!< Compute cost function (square error cost function)
+	Vector<T, Dynamic> optimization();			//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
 };
 
 
@@ -102,50 +103,55 @@ Data<T>::Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize)
 	mean(dataset.cols()),
 	range(dataset.cols())
 {
-	// Dataset & Solutions
-	dataset = data;
+	// Dataset & Solution
+	dataset = std::move(data);
 	dataset.col(0).setConstant(1);			// first column is full of 1s (independent variable)
 
-	solutions = data.block(0, 0, data.rows(), 1);
+	solutions = std::move(data.block(0, 0, data.rows(), 1));
 	
 	// Normalization (Mean normalization & Feature scaling)
 	if (normalize)
 	{
-		mean  = (dataset.colwise().sum() / numExamples()).transpose();
-		mean(0, 0) = 0;
-		range = (dataset.colwise().maxCoeff() - dataset.colwise().minCoeff()).transpose();
-		range(0, 0) = 1;
+		mean  = dataset.colwise().sum() / numExamples();
+		mean(0) = 0;
+		range = dataset.colwise().maxCoeff() - dataset.colwise().minCoeff();
+		range(0) = 1;
 	}
 	else
 	{
 		mean.setConstant(0);
 		range.setConstant(1);
 	}
-	
-	dataset = (dataset.rowwise() - mean).array().rowwise() / range.array();		// x = (x - mean) / range
+	//std::cout << mean << std::endl;
+	//std::cout << dataset << std::endl;
+	//std::cout << range << std::endl;
+	dataset = (dataset.rowwise() - mean.transpose()).array().rowwise() / range.transpose().array();		// x = (x - mean) / range
+	//std::cout << dataset << std::endl;
 };
 
 template<typename T>
 T Model<T>::model(Vector<T, Dynamic> features)	// < Not a reference because this allows to pass inline-created vector.
 {
-	if (features.size() != (parameters.size() - 1))
+	// Check dimensions
+	if (features.size() != data.numFeatures())
 		std::cout << __func__ << " Error: wrong number of features" << std::endl;
 
 	// Add independent variable and normalize
-	Vector<T, Dynamic> normFeatures(parameters.size());
+	Vector<T, Dynamic> normFeatures(data.numParams());
 	normFeatures.row(0).setConstant(1);
-	normFeatures.block(1, 0, parameters.cols(), 1) = features;
-	normFeatures = (dataset.rowwise() - mean).array().rowwise() / range.array();
+	normFeatures.block(1, 0, features.rows(), 1) = features;
+	normFeatures = (normFeatures - data.mean).array() / data.range.array();
 
+	// Apply model
 	switch (modelType)
 	{
 	case LinearRegressionAnalytical:
 	case LinearRegression:			// Linear function: h(x)
-		return parameters.transpose() * features;
+		return parameters.transpose() * normFeatures;
 		break;
 
 	case LogisticRegression:		// Logistic function / Sigmoid: g(x)
-		return 1.0 / (1.0 + std::pow(e, -parameters.transpose() * features));
+		return 1.0 / (1.0 + std::pow((T)e, - parameters.transpose() * normFeatures));
 		break;
 	
 	default:
@@ -155,7 +161,7 @@ T Model<T>::model(Vector<T, Dynamic> features)	// < Not a reference because this
 }
 
 template<typename T>
-float Model<T>::costFunction(Data<T>& data)
+float Model<T>::costFunction()
 {
 	if (data.dataset.cols() != parameters.size())	// is numFeatures != numParameters?
 		std::cout << __func__ << " Error: number of features != number of parameters" << std::endl;
@@ -165,16 +171,16 @@ float Model<T>::costFunction(Data<T>& data)
 	case LinearRegressionAnalytical:	// Square error cost function
 	case LinearRegression:
 		return 
-			(0.5 / data.numExamples) * 
+			(0.5 / data.numExamples()) * 
 			((data.dataset * parameters - data.solutions).array().pow(2)).sum();
 		break;
 
 	case LogisticRegression:			// Cost function derived from the Principle of maximum likelihood estimation (its derivative is convex).
 		{
 			Vector<T, Dynamic> gx = 1.0 / 
-				(1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples, e).pow((-data.dataset * parameters).array()));
+				(1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
 			
-			return (1.0 / data.numExamples) * (
+			return (1.0 / data.numExamples()) * (
 				data.solutions.array() * gx.array().log() +
 				(1.0 - data.solutions.array()) * (1.0 - gx.array()).log()
 				).sum();
@@ -188,7 +194,7 @@ float Model<T>::costFunction(Data<T>& data)
 };
 
 template<typename T>
-Vector<T, Dynamic> Model<T>::optimization(Data<T>& data)
+Vector<T, Dynamic> Model<T>::optimization()
 {
 	if (data.dataset.cols() != parameters.size())	// is numFeatures != numParameters?
 		std::cout << __func__ << " Error: number of features != number of parameters" << std::endl;
@@ -208,7 +214,7 @@ Vector<T, Dynamic> Model<T>::optimization(Data<T>& data)
 		{
 			return
 				parameters -
-				(alpha / data.numExamples) * (
+				(alpha / data.numExamples()) * (
 					(
 						data.dataset.array().colwise() *
 						(data.dataset * parameters - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
@@ -219,11 +225,11 @@ Vector<T, Dynamic> Model<T>::optimization(Data<T>& data)
 
 	case LogisticRegression:			// Like Linear Regression case, but using g(x) instead of h(x)
 		{
-			Vector<T, Dynamic> gx = 1.0 / (1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples, e).pow((-data.dataset * parameters).array()));
+			Vector<T, Dynamic> gx = 1.0 / (1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
 
 			return
 				parameters -
-				(alpha / data.numExamples) * (
+				(alpha / data.numExamples()) * (
 					(
 						data.dataset.array().colwise() *
 						(gx - data.solutions).array()			// Wise multiplication of a RowVector to each row of a matrix
