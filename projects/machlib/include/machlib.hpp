@@ -80,16 +80,14 @@ class Model
 
 	Vector<T, Dynamic> pow_2(T base, Vector<T, Dynamic>& exponents);	// not used
 
-	float LinR_costFunction();
-	float LogR_costFunction();
-	void LinRA_optimization();
-	void LinR_optimization();
-	void LogR_optimization();
+	float LinR_costFunction();		//!< (LinR) Square error cost function.
+	float LogR_costFunction();		//!< (LogR) Cost function that can be derived using the Principle of maximum likelihood estimation.
+	void LinRA_optimization();		//!< (Anallytic LinR) Normal equation.
+	void LinR_optimization();		//!< (LinR) Batch gradient descent.
+	void LogR_optimization();		//!< (LogR) Batch gradient descent.
 
 public:
-	Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
-		: parameters(data.numParams()), modelType(modelType), alpha(alpha), lambda(lambda), data(dataset, normalize) { }
-
+	Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize);
 	Data<T> data;
 	Vector<T, Dynamic> parameters;
 	double alpha;								//!< Learning rate (for normalization)
@@ -135,6 +133,13 @@ Data<T>::Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize)
 	dataset = (dataset.rowwise() - mean.transpose()).array().rowwise() / range.transpose().array();		// x = (x - mean) / range
 	//std::cout << dataset << std::endl;
 };
+
+template<typename T>
+Model<T>::Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
+	: parameters(data.numParams()), modelType(modelType), alpha(alpha), lambda(lambda), data(dataset, normalize) 
+{
+	parameters.setRandom();
+}
 
 template<typename T>
 T Model<T>::model(Vector<T, Dynamic> features)	// < Not a reference because this allows to pass inline-created vector.
