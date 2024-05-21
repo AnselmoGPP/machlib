@@ -80,17 +80,24 @@ class Model
 
 	Vector<T, Dynamic> pow_2(T base, Vector<T, Dynamic>& exponents);	// not used
 
+	float LinR_costFunction();
+	float LogR_costFunction();
+	void LinRA_optimization();
+	void LinR_optimization();
+	void LogR_optimization();
+
 public:
-	Model(ModelType modelType, double alpha, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
-		: parameters(data.numParams()), modelType(modelType), alpha(alpha), data(dataset, normalize) { }
+	Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
+		: parameters(data.numParams()), modelType(modelType), alpha(alpha), lambda(lambda), data(dataset, normalize) { }
 
 	Data<T> data;
 	Vector<T, Dynamic> parameters;
-	double alpha;								//!< Learning rate
+	double alpha;								//!< Learning rate (for normalization)
+	double lambda;								//!< Regularization parameter
 
 	T model(Vector<T, Dynamic> features);		//!< Call h(x), where x == features you provide.
 	float costFunction();						//!< Compute cost function (square error cost function)
-	Vector<T, Dynamic> optimization();			//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
+	void optimize();							//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
 };
 
 
@@ -134,13 +141,13 @@ T Model<T>::model(Vector<T, Dynamic> features)	// < Not a reference because this
 {
 	// Check dimensions
 	if (features.size() != data.numFeatures())
-		std::cout << __func__ << " Error: wrong number of features" << std::endl;
+		std::cout << __func__ << "Error: wrong number of features" << std::endl;
 
 	// Add independent variable and normalize
 	Vector<T, Dynamic> normFeatures(data.numParams());
 	normFeatures.row(0).setConstant(1);
 	normFeatures.block(1, 0, features.rows(), 1) = features;
-	normFeatures = (normFeatures - data.mean).array() / data.range.array();
+	normFeatures = (normFeatures - data.mean).array() / data.range.array();	// <<< aliasing issue
 
 	// Apply model
 	switch (modelType)
@@ -163,30 +170,18 @@ T Model<T>::model(Vector<T, Dynamic> features)	// < Not a reference because this
 template<typename T>
 float Model<T>::costFunction()
 {
-	if (data.dataset.cols() != parameters.size())	// is numFeatures != numParameters?
-		std::cout << __func__ << " Error: number of features != number of parameters" << std::endl;
+	if (data.dataset.cols() != data.numParams())
+		std::cout << __func__ << " Error: wrong number of features" << std::endl;
 
 	switch (modelType)
 	{
 	case LinearRegressionAnalytical:	// Square error cost function
 	case LinearRegression:
-		return 
-			(0.5 / data.numExamples()) * 
-			((data.dataset * parameters - data.solutions).array().pow(2)).sum();
+		return LinR_costFunction();
 		break;
-
 	case LogisticRegression:			// Cost function derived from the Principle of maximum likelihood estimation (its derivative is convex).
-		{
-			Vector<T, Dynamic> gx = 1.0 / 
-				(1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
-			
-			return (1.0 / data.numExamples()) * (
-				data.solutions.array() * gx.array().log() +
-				(1.0 - data.solutions.array()) * (1.0 - gx.array()).log()
-				).sum();
-		}
+		return LogR_costFunction();
 		break;
-
 	default:
 		// <<< Exception
 		break;
@@ -194,55 +189,130 @@ float Model<T>::costFunction()
 };
 
 template<typename T>
-Vector<T, Dynamic> Model<T>::optimization()
+void Model<T>::optimize()
 {
-	if (data.dataset.cols() != parameters.size())	// is numFeatures != numParameters?
-		std::cout << __func__ << " Error: number of features != number of parameters" << std::endl;
+	if (data.dataset.cols() != data.numParams())
+		std::cout << __func__ << " Error: wrong number of features" << std::endl;
 
 	switch (modelType)
 	{
 	case LinearRegressionAnalytical:	// THETA = (X*T X)^-1 (X^T Y)
-		{
-			Matrix<T, Dynamic, Dynamic> datasetTransposed = data.dataset.transpose();
-			return
-				(datasetTransposed * data.dataset).completeOrthogonalDecomposition().pseudoInverse() *
-				(datasetTransposed * data.solutions);
-		}
+		LinRA_optimization();
 		break;
-
 	case LinearRegression:				// thetaj = thetaj - (alpha/m) sum((h(xi)-yi) xij)	(i: example) (j: feature)
-		{
-			return
-				parameters -
-				(alpha / data.numExamples()) * (
-					(
-						data.dataset.array().colwise() *
-						(data.dataset * parameters - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
-					).colwise().sum()											// Get a vector with the sum of the contents of each row
-				).matrix().transpose();
-		}
+		LinR_optimization();
 		break;
-
 	case LogisticRegression:			// Like Linear Regression case, but using g(x) instead of h(x)
-		{
-			Vector<T, Dynamic> gx = 1.0 / (1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
-
-			return
-				parameters -
-				(alpha / data.numExamples()) * (
-					(
-						data.dataset.array().colwise() *
-						(gx - data.solutions).array()			// Wise multiplication of a RowVector to each row of a matrix
-					).colwise().sum()							// Get a vector with the sum of the contents of each row
-				).matrix().transpose();
-		}
+		LogR_optimization();
 		break;
-
 	default:
 		std::cout << "Non valid combination of ModelType and OptimizationType" << std::endl;
 		// <<< Exception
 		break;
 	}
+}
+
+template<typename T>
+float Model<T>::LinR_costFunction()
+{
+	if (lambda)
+		return
+			(0.5 / data.numExamples()) *
+			((data.dataset * parameters - data.solutions).array().pow(2)).sum() +
+			lambda * parameters.array().square().sum();
+	else
+		return
+			(0.5 / data.numExamples()) *
+			((data.dataset * parameters - data.solutions).array().pow(2)).sum();
+}
+
+template<typename T>
+float Model<T>::LogR_costFunction()
+{
+	Vector<T, Dynamic> gx = 1.0 /
+		(1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
+
+	if(lambda)
+		return (1.0 / data.numExamples()) * (
+			data.solutions.array() * gx.array().log() +
+			(1.0 - data.solutions.array()) * (1.0 - gx.array()).log()
+			).sum() +
+			(lambda / (2 * data.numExamples())) * parameters.array().square().sum();
+	else
+		return (1.0 / data.numExamples()) * (
+			data.solutions.array() * gx.array().log() +
+			(1.0 - data.solutions.array()) * (1.0 - gx.array()).log()
+			).sum();
+}
+
+template<typename T>
+void Model<T>::LinRA_optimization()
+{
+	Matrix<T, Dynamic, Dynamic> datasetTransposed = data.dataset.transpose();
+
+	if (lambda)
+	{
+		Matrix<T, Dynamic, Dynamic> Z = Matrix<T, Dynamic, Dynamic>::Identity(data.numParams(), data.numParams());
+		Z(0, 0) = 0;
+		parameters =
+			(datasetTransposed * data.dataset + lambda * Z).inverse() *
+			(datasetTransposed * data.solutions);
+	}
+	else
+		parameters =
+			(datasetTransposed * data.dataset).completeOrthogonalDecomposition().pseudoInverse() *
+			(datasetTransposed * data.solutions);
+}
+
+template<typename T>
+void Model<T>::LinR_optimization()
+{
+	if (lambda)
+	{
+		parameters =
+			parameters * (1.0 - alpha * lambda / data.numExamples()) -
+			(alpha / data.numExamples()) * (
+				(
+					data.dataset.array().colwise() *
+					(data.dataset * parameters - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
+					).colwise().sum()										// Get a vector with the sum of the contents of each row
+				).matrix().transpose();
+	}
+	else
+		parameters =
+			parameters -
+			(alpha / data.numExamples()) * (
+				(
+					data.dataset.array().colwise() *
+					(data.dataset * parameters - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
+				).colwise().sum()											// Get a vector with the sum of the contents of each row
+			).matrix().transpose();
+}
+
+template<typename T>
+void Model<T>::LogR_optimization()
+{
+	Vector<T, Dynamic> gx = 1.0 / (1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
+
+	if (lambda)
+		parameters =
+			parameters -
+			(alpha / data.numExamples()) * (
+				(
+					data.dataset.array().colwise() *
+					(gx - data.solutions).array()			// Wise multiplication of a RowVector to each row of a matrix
+				).colwise().sum() +							// Get a vector with the sum of the contents of each row
+				((lambda / data.numExamples()) * parameters).transpose().array()
+			).matrix().transpose();
+	else
+		parameters =
+			parameters -
+			(alpha / data.numExamples()) * (
+				(
+					data.dataset.array().colwise() *
+					(gx - data.solutions).array()			// Wise multiplication of a RowVector to each row of a matrix
+				).colwise().sum()							// Get a vector with the sum of the contents of each row
+			).matrix().transpose();
 }
 
 template<typename T>
