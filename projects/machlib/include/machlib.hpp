@@ -30,6 +30,7 @@ using namespace Eigen;
 	Convolutional Neural Networks (CNNs)
 	sentiment analysis, named entity recognition, topic modeling, and text classification using methods like Recurrent Neural Networks (RNNs), Long Short-Term Memory (LSTM) networks, or, of course, the Transformer models
 	statistical methods like Isolation Forest, One-Class SVM, or Gaussian Mixture Models (GMM), as well as deep learning approaches such as Autoencoders
+	Activation functions: Sigmoid (output), Hyperbolic Tangent (Tanh), Rectified Linear Unit (ReLU), Leaky ReLU, PReLU, ELU, Softmax (output).
 */
 
 // Use binaryExpr()
@@ -59,9 +60,9 @@ class Data
 public:
 	Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize);	//!< Data param contains solution + features (in this order).
 	
-	size_t numExamples()   { return dataset.rows(); };
-	size_t numParams() { return dataset.cols(); };
-	size_t numFeatures()   { return dataset.cols() - 1; };
+	size_t numExamples() { return dataset.rows(); };
+	size_t numParams()   { return dataset.cols(); };
+	size_t numFeatures() { return dataset.cols() - 1; };
 
 	Matrix<T, Dynamic, Dynamic> dataset;	//!< Matrix<T, Examples, Features>
 	Vector<T, Dynamic> solutions;			//!< Vector<T, Examples>
@@ -80,11 +81,11 @@ class Model
 
 	Vector<T, Dynamic> pow_2(T base, Vector<T, Dynamic>& exponents);	// not used
 
-	float LinR_costFunction();		//!< (LinR) Square error cost function.
-	float LogR_costFunction();		//!< (LogR) Cost function that can be derived using the Principle of maximum likelihood estimation.
-	void LinRA_optimization();		//!< (Anallytic LinR) Normal equation.
-	void LinR_optimization();		//!< (LinR) Batch gradient descent.
-	void LogR_optimization();		//!< (LogR) Batch gradient descent.
+	float LinR_costFunction();		//!< Square error cost function for Lin. Reg.
+	float LogR_costFunction();		//!< Cost function for Log. Reg. (this one can be derived using the Principle of maximum likelihood estimation.
+	void LinRA_optimization();		//!< Normal equation (Ordinary least squares) for anallytic Lin. Reg.
+	void LinR_optimization();		//!< Batch gradient descent for Lin. Reg.
+	void LogR_optimization();		//!< Batch gradient descent for Log. Reg.
 
 public:
 	Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize);
@@ -96,6 +97,8 @@ public:
 	T model(Vector<T, Dynamic> features);		//!< Call h(x), where x == features you provide.
 	float costFunction();						//!< Compute cost function (square error cost function)
 	void optimize();							//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
+
+	void printParams();
 };
 
 
@@ -110,9 +113,8 @@ Data<T>::Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize)
 {
 	// Dataset & Solution
 	dataset = std::move(data);
+	solutions = dataset.block(0, 0, dataset.rows(), 1);
 	dataset.col(0).setConstant(1);			// first column is full of 1s (independent variable)
-
-	solutions = std::move(data.block(0, 0, data.rows(), 1));
 	
 	// Normalization (Mean normalization & Feature scaling)
 	if (normalize)
@@ -127,11 +129,8 @@ Data<T>::Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize)
 		mean.setConstant(0);
 		range.setConstant(1);
 	}
-	//std::cout << mean << std::endl;
-	//std::cout << dataset << std::endl;
-	//std::cout << range << std::endl;
+
 	dataset = (dataset.rowwise() - mean.transpose()).array().rowwise() / range.transpose().array();		// x = (x - mean) / range
-	//std::cout << dataset << std::endl;
 };
 
 template<typename T>
@@ -216,6 +215,9 @@ void Model<T>::optimize()
 		break;
 	}
 }
+
+template<typename T>
+void Model<T>::printParams() { std::cout << parameters.transpose() << std::endl; }
 
 template<typename T>
 float Model<T>::LinR_costFunction()

@@ -3,41 +3,34 @@
 
 int main(int argc, char* argv[])
 {
-	//const int features = 3;		// number of features/parameters
-	//const int examples = 4;		// number of examples
-
 	// Get data
-	Matrix<float, Dynamic, Dynamic> myData(4, 3);		// Cols are examples. Rows are solution + features.
+	Matrix<float, Dynamic, Dynamic> myData(4, 3);		// Columns are examples. Rows are solution + features.
 	myData <<
-		4, 2, 2,
-		6, 3, 2,
-		3, 1, 3,
-		2, 2, 1;
+		4, 2, 2,	// This data represents: a = b + c
+		5, 3, 2,
+		4, 1, 3,
+		3, 2, 1;
+	
+	// Create model
+	Model<float> model(LinearRegression, 0.1f, 0.f, myData, false);
 
+	// Train model
+	float J;
+	for (size_t i = 0; i < 1000; i++)
+	{
+		J = model.costFunction();		// get error
+		model.optimize();				// optimize parameters
+		std::cout << i << ": " << J << std::endl;
+	}
+
+	// Make predictions
 	Vector<float, Dynamic> input(2);
-	input << 4, 3;
-	
-	Model<float> model(LinearRegression, 1.f, 0.f, myData, true);
-	model.parameters.setRandom();
+	input << 4, 3;						// 4 + 3 = 7
 
-	int h = model.model(myData.block(2, 1, 1, 2).transpose());
-	int J = model.costFunction();
-	model.optimize();
-
-	//std::cout << "Dataset: \n" << model.data.dataset << std::endl;
-	//std::cout << "Solutions: \n" << model.data.solutions << std::endl;
-	//std::cout << "Mean: \n" << model.data.mean << std::endl;
-	//std::cout << "Range: \n" << model.data.range << std::endl;
-	//
-	//std::cout << "Expected: \n  - 207 - 360 - 590.5 \n  h = 90 \n  J = 3018 \n\n";
-	//std::cout
-	//	<< model.data.dataset << "\n\n"
-	//	<< model.data.solutions << "\n\n"
-	//	<< model.parameters << "\n\n"
-	//
-	//	<< bestParams << "\n\n"
-	//	<< h << ", " << J << "\n\n";
+	float h = model.model(input);
+	std::cout << "Prediction: " << h << std::endl;
 	
+	// Exit
 	std::system("pause");
 	return 0;
 }
