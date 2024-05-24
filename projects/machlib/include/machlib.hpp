@@ -34,7 +34,7 @@ using namespace Eigen;
 */
 
 // Use binaryExpr()
-// Use std::move() maybe
+// aliassing issue
 
 // Constants & enums ----------
 
@@ -44,7 +44,8 @@ double pi = 3.14159265358979323846264338327950288;
 enum ModelType {
 	LinearRegressionAnalytical,
 	LinearRegression,			// for Regression problems (continuous values)
-	LogisticRegression			// for Classification systems (discrete values)
+	LogisticRegression,			// for Classification systems (discrete values)
+	None
 };
 
 
@@ -89,8 +90,9 @@ class Model
 
 public:
 	Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize);
+
 	Data<T> data;
-	Vector<T, Dynamic> parameters;
+	Vector<T, Dynamic> params;
 	double alpha;								//!< Learning rate (for normalization)
 	double lambda;								//!< Regularization parameter
 
@@ -99,6 +101,41 @@ public:
 	void optimize();							//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
 
 	void printParams();
+};
+
+
+template<typename T>
+struct Layer
+{
+	Layer(ModelType funcType, unsigned numActUnits);
+
+	void allocateParams(unsigned numParams);
+	void saveOutput(Vector<T, Dynamic>& newOutput);	//!< Save features (not including first one)
+	const Vector<T, Dynamic>& getOutput();			//!< Get features (including first one)
+
+	ModelType funcType;					//!< Activation function type
+	unsigned numActUnits;				//!< Number of activation units (each one produced by an activation function)
+	Matrix<T, Dynamic, Dynamic> params;	//!< Weights (parameters)
+
+private:
+	Vector<T, Dynamic> output;			//!< Activation units + 1 (solutions)
+};
+
+
+template<typename T>
+class DeepModel
+{
+public:
+	DeepModel(std::vector<Layer<T>>& layersInfo, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize);
+
+	Data<T> data;
+	std::vector<Layer<T>> layers;
+	double alpha;											//!< Learning rate (for normalization)
+	double lambda;											//!< Regularization parameter
+
+	Vector<T, Dynamic> model(Vector<T, Dynamic> features);	//!< Call h(x), where x == features you provide.
+	float costFunction();									//!< Compute cost function (square error cost function)
+	void optimize();										//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
 };
 
 
@@ -135,9 +172,9 @@ Data<T>::Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize)
 
 template<typename T>
 Model<T>::Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
-	: parameters(data.numParams()), modelType(modelType), alpha(alpha), lambda(lambda), data(dataset, normalize) 
+	: modelType(modelType), data(dataset, normalize), params(data.numParams()), alpha(alpha), lambda(lambda)
 {
-	parameters.setRandom();
+	params.setRandom();
 }
 
 template<typename T>
@@ -158,11 +195,11 @@ T Model<T>::model(Vector<T, Dynamic> features)	// < Not a reference because this
 	{
 	case LinearRegressionAnalytical:
 	case LinearRegression:			// Linear function: h(x)
-		return parameters.transpose() * normFeatures;
+		return params.transpose() * normFeatures;
 		break;
 
 	case LogisticRegression:		// Logistic function / Sigmoid: g(x)
-		return 1.0 / (1.0 + std::pow((T)e, - parameters.transpose() * normFeatures));
+		return 1.0 / (1.0 + std::pow((T)e, -params.transpose() * normFeatures));
 		break;
 	
 	default:
@@ -217,7 +254,7 @@ void Model<T>::optimize()
 }
 
 template<typename T>
-void Model<T>::printParams() { std::cout << parameters.transpose() << std::endl; }
+void Model<T>::printParams() { std::cout << params.transpose() << std::endl; }
 
 template<typename T>
 float Model<T>::LinR_costFunction()
@@ -225,26 +262,26 @@ float Model<T>::LinR_costFunction()
 	if (lambda)
 		return
 			(0.5 / data.numExamples()) *
-			((data.dataset * parameters - data.solutions).array().pow(2)).sum() +
-			lambda * parameters.array().square().sum();
+			((data.dataset * params - data.solutions).array().pow(2)).sum() +
+			lambda * params.array().square().sum();
 	else
 		return
 			(0.5 / data.numExamples()) *
-			((data.dataset * parameters - data.solutions).array().pow(2)).sum();
+			((data.dataset * params - data.solutions).array().pow(2)).sum();
 }
 
 template<typename T>
 float Model<T>::LogR_costFunction()
 {
 	Vector<T, Dynamic> gx = 1.0 /
-		(1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
+		(1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * params).array()));
 
 	if(lambda)
 		return (1.0 / data.numExamples()) * (
 			data.solutions.array() * gx.array().log() +
 			(1.0 - data.solutions.array()) * (1.0 - gx.array()).log()
 			).sum() +
-			(lambda / (2 * data.numExamples())) * parameters.array().square().sum();
+			(lambda / (2 * data.numExamples())) * params.array().square().sum();
 	else
 		return (1.0 / data.numExamples()) * (
 			data.solutions.array() * gx.array().log() +
@@ -261,12 +298,12 @@ void Model<T>::LinRA_optimization()
 	{
 		Matrix<T, Dynamic, Dynamic> Z = Matrix<T, Dynamic, Dynamic>::Identity(data.numParams(), data.numParams());
 		Z(0, 0) = 0;
-		parameters =
+		params =
 			(datasetTransposed * data.dataset + lambda * Z).inverse() *
 			(datasetTransposed * data.solutions);
 	}
 	else
-		parameters =
+		params =
 			(datasetTransposed * data.dataset).completeOrthogonalDecomposition().pseudoInverse() *
 			(datasetTransposed * data.solutions);
 }
@@ -276,22 +313,22 @@ void Model<T>::LinR_optimization()
 {
 	if (lambda)
 	{
-		parameters =
-			parameters * (1.0 - alpha * lambda / data.numExamples()) -
+		params =
+			params * (1.0 - alpha * lambda / data.numExamples()) -
 			(alpha / data.numExamples()) * (
 				(
 					data.dataset.array().colwise() *
-					(data.dataset * parameters - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
+					(data.dataset * params - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
 					).colwise().sum()										// Get a vector with the sum of the contents of each row
 				).matrix().transpose();
 	}
 	else
-		parameters =
-			parameters -
+		params =
+			params -
 			(alpha / data.numExamples()) * (
 				(
 					data.dataset.array().colwise() *
-					(data.dataset * parameters - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
+					(data.dataset * params - data.solutions).array()	// Wise multiplication of a RowVector to each row of a matrix
 				).colwise().sum()											// Get a vector with the sum of the contents of each row
 			).matrix().transpose();
 }
@@ -299,21 +336,21 @@ void Model<T>::LinR_optimization()
 template<typename T>
 void Model<T>::LogR_optimization()
 {
-	Vector<T, Dynamic> gx = 1.0 / (1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * parameters).array()));
+	Vector<T, Dynamic> gx = 1.0 / (1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * params).array()));
 
 	if (lambda)
-		parameters =
-			parameters -
+		params =
+			params -
 			(alpha / data.numExamples()) * (
 				(
 					data.dataset.array().colwise() *
 					(gx - data.solutions).array()			// Wise multiplication of a RowVector to each row of a matrix
 				).colwise().sum() +							// Get a vector with the sum of the contents of each row
-				((lambda / data.numExamples()) * parameters).transpose().array()
+				((lambda / data.numExamples()) * params).transpose().array()
 			).matrix().transpose();
 	else
-		parameters =
-			parameters -
+		params =
+			params -
 			(alpha / data.numExamples()) * (
 				(
 					data.dataset.array().colwise() *
@@ -330,5 +367,99 @@ Vector<T, Dynamic> Model<T>::pow_2(T base, Vector<T, Dynamic>& exponents)
 
 	return exponents;
 }
+
+template<typename T>
+Layer<T>::Layer(ModelType funcType, unsigned numActUnits)
+	: funcType(funcType), numActUnits(numActUnits) 
+{ 
+	output.resize(numActUnits + 1);
+	output[0] = 1;
+}
+
+template<typename T>
+void Layer<T>::allocateParams(unsigned numParams)
+{
+	params.resize(numActUnits, numParams);
+	params.setRandom();
+}
+
+template<typename T>
+void Layer<T>::saveOutput(Vector<T, Dynamic>& newOutput)
+{
+	output.block(1, 0, numActUnits, 1) = newOutput;
+}
+
+template<typename T>
+const Vector<T, Dynamic>& Layer<T>::getOutput() { return output; }
+
+template<typename T>
+DeepModel<T>::DeepModel(std::vector<Layer<T>>& layersInfo, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
+	: data(dataset, normalize), alpha(alpha), lambda(lambda)
+{
+	if (layers.size()) std::cerr << "Error: At least one layer is required" << std::endl;
+
+	layers.push_back(Layer<T>(None, data.numFeatures()));
+
+	for (unsigned i = 0; i < layersInfo.size(); i++)
+	{
+		layers.push_back(layersInfo[i]);
+		layers[i+1].allocateParams(layers[i].numActUnits + 1);
+	}
+}
+
+template<typename T>
+Vector<T, Dynamic> DeepModel<T>::model(Vector<T, Dynamic> features)
+{
+	// Check dimensions
+	if (features.size() != data.numFeatures())
+		std::cout << __func__ << "Error: wrong number of features" << std::endl;
+
+	// Add independent variable and normalize
+	Vector<T, Dynamic> newFeatures = (features - data.mean.block(1, 0, data.numFeatures(), 1)).array() / data.range.block(1, 0, data.numFeatures(), 1).array();
+	layers[0].saveOutput(newFeatures);
+
+	// Apply model
+	size_t i;
+	for (i = 1; i < layers.size(); i++)
+	{
+		switch (layers[i].funcType)
+		{
+		case LinearRegressionAnalytical:
+		case LinearRegression:			// Linear function: h(x)
+			newFeatures = layers[i].params * layers[i - 1].getOutput();
+			break;
+
+		case LogisticRegression:		// Logistic function / Sigmoid: g(x)
+			newFeatures = 
+					1.0 / (1.0 + 
+						Array<T, Dynamic, 1>::Constant(layers[i].numActUnits, e).pow(
+							(- layers[i].params * layers[i - 1].getOutput()).array()
+						)
+					);
+			break;
+
+		default:
+			// <<< Exception
+			break;
+		}
+
+		layers[i].saveOutput(newFeatures);
+	}
+
+	return (layers[i - 1].getOutput()).block(1, 0, layers[i - 1].numActUnits, 1);
+}
+
+template<typename T>
+float DeepModel<T>::costFunction()
+{
+
+}
+
+template<typename T>
+void DeepModel<T>::optimize()
+{
+
+}
+
 
 #endif
