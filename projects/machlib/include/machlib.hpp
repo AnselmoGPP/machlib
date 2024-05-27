@@ -21,7 +21,7 @@ using namespace Eigen;
 	Variables (Features), parameters, result.
 	Models (h(x)): Linear regression (pol. reg.), Logistic regression.
 	Cost function: Square error.
-	Optimization algorithms: Normal equation (lin. reg.), Batch gradient descent, Conjugate gradient, BFGS, L-BFGS, etc.
+	Optimization algorithms: Normal equation (lin. reg.), Batch gradient descent, fminunc, Conjugate gradient, BFGS, L-BFGS, etc.
 	Learning algorithm (cost function + optimization algorithm)
 	> Normalization: Feature scaling, Mean normalization, Learning rate, Features edition.
 	> Overfitting: Use Regularization: delete features and reduce parameters (reg. param.).
@@ -72,6 +72,23 @@ public:
 };
 
 
+template<typename T>
+class DeepData
+{
+public:
+	DeepData(Matrix<T, Dynamic, Dynamic>& data, unsigned outputActUnits, bool normalize);	//!< Data param contains solution + features (in this order).
+
+	size_t numExamples() { return dataset.rows(); };
+	size_t numParams() { return dataset.cols(); };
+	size_t numFeatures() { return dataset.cols() - 1; };
+
+	Matrix<T, Dynamic, Dynamic> dataset;	//!< Matrix<T, Examples, Features>
+	Matrix<T, Dynamic, Dynamic> solutions;	//!< Vector<T, Examples>
+	Vector<T, Dynamic> mean;				//!< for Mean Normalization (make mean == 0)
+	Vector<T, Dynamic> range;				//!< for Feature Scaling (make range [-1, 1])
+};
+
+
 /**
 	Hypothesis & Learning algorithm (cost function + optimization algorithm)
 */
@@ -107,33 +124,41 @@ public:
 template<typename T>
 struct Layer
 {
-	Layer(ModelType funcType, unsigned numActUnits);
+	Layer(unsigned numActUnits);
 
 	void allocateParams(unsigned numParams);
 	void saveOutput(Vector<T, Dynamic>& newOutput);	//!< Save features (not including first one)
 	const Vector<T, Dynamic>& getOutput();			//!< Get features (including first one)
 
-	ModelType funcType;					//!< Activation function type
+	//ModelType funcType;				//!< Activation function type
 	unsigned numActUnits;				//!< Number of activation units (each one produced by an activation function)
 	Matrix<T, Dynamic, Dynamic> params;	//!< Weights (parameters)
 
 private:
-	Vector<T, Dynamic> output;			//!< Activation units + 1 (solutions)
+	//Vector<T, Dynamic> output;			//!< Activation units + 1 (solutions)
 };
 
 
 template<typename T>
 class DeepModel
 {
-public:
-	DeepModel(std::vector<Layer<T>>& layersInfo, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize);
+	ModelType functionType;
 
-	Data<T> data;
+	//float LinR_costFunction();	//!< Square error cost function for Lin. Reg.
+	//float LogR_costFunction();	//!< Cost function for Log. Reg. (this one can be derived using the Principle of maximum likelihood estimation.
+	//void LinRA_optimization();	//!< Normal equation (Ordinary least squares) for anallytic Lin. Reg.
+	//void LinR_optimization();		//!< Batch gradient descent for Lin. Reg.
+	//void LogR_optimization();		//!< Batch gradient descent for Log. Reg.
+
+public:
+	DeepModel(std::vector<Layer<T>>& layersInfo, ModelType functionType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize);
+
+	DeepData<T> data;
 	std::vector<Layer<T>> layers;
 	double alpha;											//!< Learning rate (for normalization)
 	double lambda;											//!< Regularization parameter
 
-	Vector<T, Dynamic> model(Vector<T, Dynamic> features);	//!< Call h(x), where x == features you provide.
+	Vector<T, Dynamic> model(Vector<T, Dynamic> features);	//!< Feed forward propagation. Call h(x), where x == features you provide.
 	float costFunction();									//!< Compute cost function (square error cost function)
 	void optimize();										//!< Optimize parameters with a learning algorithm (batch gradient descent or Normal equation) (alternatives: Conjugate gradient, BFGS, L-BFGS...).
 };
@@ -168,7 +193,35 @@ Data<T>::Data(Matrix<T, Dynamic, Dynamic>& data, bool normalize)
 	}
 
 	dataset = (dataset.rowwise() - mean.transpose()).array().rowwise() / range.transpose().array();		// x = (x - mean) / range
-};
+}
+
+template<typename T>
+DeepData<T>::DeepData(Matrix<T, Dynamic, Dynamic>& data, unsigned numOutputUnits, bool normalize)
+{
+	// Dataset & Solution
+	dataset = data.block(0, numOutputUnits - 1, data.rows(), data.cols() - numOutputUnits + 1);
+	dataset.col(0).setConstant(1);			// first column is full of 1s (independent variable)
+	solutions = data.block(0, 0, data.rows(), numOutputUnits);
+
+	// Normalization (Mean normalization & Feature scaling)
+	mean.resize(dataset.cols());
+	range.resize(dataset.cols());
+
+	if (normalize)
+	{
+		mean = dataset.colwise().sum() / numExamples();
+		mean(0) = 0;
+		range = dataset.colwise().maxCoeff() - dataset.colwise().minCoeff();
+		range(0) = 1;
+	}
+	else
+	{
+		mean.setConstant(0);
+		range.setConstant(1);
+	}
+
+	dataset = (dataset.rowwise() - mean.transpose()).array().rowwise() / range.transpose().array();		// x = (x - mean) / range
+}
 
 template<typename T>
 Model<T>::Model(ModelType modelType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
@@ -237,7 +290,7 @@ void Model<T>::optimize()
 
 	switch (modelType)
 	{
-	case LinearRegressionAnalytical:	// THETA = (X*T X)^-1 (X^T Y)
+	case LinearRegressionAnalytical:	// THETA = (X^T X)^-1 (X^T Y)
 		LinRA_optimization();
 		break;
 	case LinearRegression:				// thetaj = thetaj - (alpha/m) sum((h(xi)-yi) xij)	(i: example) (j: feature)
@@ -252,9 +305,6 @@ void Model<T>::optimize()
 		break;
 	}
 }
-
-template<typename T>
-void Model<T>::printParams() { std::cout << params.transpose() << std::endl; }
 
 template<typename T>
 float Model<T>::LinR_costFunction()
@@ -277,13 +327,13 @@ float Model<T>::LogR_costFunction()
 		(1.0 + Array<T, Dynamic, 1>::Constant(data.numExamples(), e).pow((-data.dataset * params).array()));
 
 	if(lambda)
-		return (1.0 / data.numExamples()) * (
+		return (-1.0 / data.numExamples()) * (		// <<< is -1.0?
 			data.solutions.array() * gx.array().log() +
 			(1.0 - data.solutions.array()) * (1.0 - gx.array()).log()
 			).sum() +
-			(lambda / (2 * data.numExamples())) * params.array().square().sum();
+			(0.5 * lambda / data.numExamples()) * params.array().square().sum();
 	else
-		return (1.0 / data.numExamples()) * (
+		return (-1.0 / data.numExamples()) * (
 			data.solutions.array() * gx.array().log() +
 			(1.0 - data.solutions.array()) * (1.0 - gx.array()).log()
 			).sum();
@@ -369,11 +419,11 @@ Vector<T, Dynamic> Model<T>::pow_2(T base, Vector<T, Dynamic>& exponents)
 }
 
 template<typename T>
-Layer<T>::Layer(ModelType funcType, unsigned numActUnits)
-	: funcType(funcType), numActUnits(numActUnits) 
+Layer<T>::Layer(unsigned numActUnits)
+	: numActUnits(numActUnits) 
 { 
-	output.resize(numActUnits + 1);
-	output[0] = 1;
+	//output.resize(numActUnits + 1);
+	//output[0] = 1;
 }
 
 template<typename T>
@@ -393,12 +443,12 @@ template<typename T>
 const Vector<T, Dynamic>& Layer<T>::getOutput() { return output; }
 
 template<typename T>
-DeepModel<T>::DeepModel(std::vector<Layer<T>>& layersInfo, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
-	: data(dataset, normalize), alpha(alpha), lambda(lambda)
+DeepModel<T>::DeepModel(std::vector<Layer<T>>& layersInfo, ModelType functionType, double alpha, double lambda, Matrix<T, Dynamic, Dynamic>& dataset, bool normalize)
+	: functionType(functionType), data(dataset, layersInfo[layersInfo.size() - 1].numActUnits, normalize), alpha(alpha), lambda(lambda)
 {
 	if (layers.size()) std::cerr << "Error: At least one layer is required" << std::endl;
 
-	layers.push_back(Layer<T>(None, data.numFeatures()));
+	layers.push_back(Layer<T>(data.numFeatures()));
 
 	for (unsigned i = 0; i < layersInfo.size(); i++)
 	{
@@ -415,27 +465,33 @@ Vector<T, Dynamic> DeepModel<T>::model(Vector<T, Dynamic> features)
 		std::cout << __func__ << "Error: wrong number of features" << std::endl;
 
 	// Add independent variable and normalize
-	Vector<T, Dynamic> newFeatures = (features - data.mean.block(1, 0, data.numFeatures(), 1)).array() / data.range.block(1, 0, data.numFeatures(), 1).array();
-	layers[0].saveOutput(newFeatures);
+	Vector<T, Dynamic> features_1, features_2;
+
+	features_1.resize(data.numParams());
+	features_1(0) = 1;
+	features_1.block(1, 0, features.size(), 1) = (features - data.mean.block(1, 0, data.numFeatures(), 1)).array() / data.range.block(1, 0, data.numFeatures(), 1).array();
 
 	// Apply model
-	size_t i;
-	for (i = 1; i < layers.size(); i++)
+	for (size_t i = 1; i < layers.size(); i++)
 	{
-		switch (layers[i].funcType)
+		features_2.resize(layers[i].numActUnits + 1);
+		features_2[0] = 1;
+
+		switch (functionType)
 		{
 		case LinearRegressionAnalytical:
 		case LinearRegression:			// Linear function: h(x)
-			newFeatures = layers[i].params * layers[i - 1].getOutput();
+			features_2.block(1, 0, layers[i].numActUnits, 1) = 
+				layers[i].params * features_1;
 			break;
 
 		case LogisticRegression:		// Logistic function / Sigmoid: g(x)
-			newFeatures = 
-					1.0 / (1.0 + 
-						Array<T, Dynamic, 1>::Constant(layers[i].numActUnits, e).pow(
-							(- layers[i].params * layers[i - 1].getOutput()).array()
-						)
-					);
+			features_2.block(1, 0, layers[i].numActUnits, 1) =
+				1.0 / (1.0 +
+					Array<T, Dynamic, 1>::Constant(layers[i].numActUnits, e).pow(
+						(-layers[i].params * features_1).array()
+					)
+				);
 			break;
 
 		default:
@@ -443,22 +499,99 @@ Vector<T, Dynamic> DeepModel<T>::model(Vector<T, Dynamic> features)
 			break;
 		}
 
-		layers[i].saveOutput(newFeatures);
+		features_1 = std::move(features_2);
 	}
 
-	return (layers[i - 1].getOutput()).block(1, 0, layers[i - 1].numActUnits, 1);
+	return features_1.block(1, 0, layers[layers.size() - 1].numActUnits, 1);
 }
 
 template<typename T>
 float DeepModel<T>::costFunction()
 {
+	// Check dimensions
+	if (data.dataset.cols() != data.numParams())
+		std::cout << __func__ << " Error: wrong number of features" << std::endl;
 
+	// Feed forward propagation
+	double totalDiff, totalParams = 0;
+	Matrix<T, Dynamic, Dynamic> features_1, features_2;
+	features_1 = data.dataset;
+
+	for (size_t i = 1; i < layers.size(); i++)
+	{
+		features_2.resize(data.numExamples(), layers[i].numActUnits + 1);
+		features_2.col(0).setConstant(1);
+
+		switch (functionType)
+		{
+		case LinearRegressionAnalytical:
+		case LinearRegression:
+			features_2.block(0, 1, data.numExamples(), layers[i].numActUnits) =
+				features_1 * layers[i].params.transpose();
+			break;
+			
+		case LogisticRegression:
+			features_2.block(0, 1, data.numExamples(), layers[i].numActUnits) =
+				1.0 / (1.0 +
+					Array<T, Dynamic, 1>::Constant(features_1.rows() * layers[i].params.rows(), e).pow(
+						(-features_1 * layers[i].params.transpose()).array()
+					)
+				);
+			break;
+
+		default:
+			// <<< Exception
+			break;
+		}
+
+		features_1 = std::move(features_2);
+		totalParams += layers[i].params.array().square().sum();
+	}
+
+	features_2 = features_1.block(0, 1, features_1.rows(), features_1.cols() - 1);
+	
+	switch (functionType)
+	{
+	case LinearRegressionAnalytical:
+	case LinearRegression:
+		totalDiff = (features_2 - data.solutions).array().square().sum();
+		return (0.5 / data.numExamples()) * totalDiff + lambda * totalParams;
+		break;
+	case LogisticRegression:
+		totalDiff = (data.solutions.array() * features_2.array().log() +
+			(1.0 - data.solutions.array()) * (1.0 - features_2.array()).log()
+			).sum();
+		return (-1.0 / data.numExamples()) * totalDiff + (0.5 * lambda / data.numExamples()) * totalParams;
+		break;
+
+	default:
+		return 0;// <<< Exception
+		break;
+	}
 }
 
 template<typename T>
 void DeepModel<T>::optimize()
 {
+	if (data.dataset.cols() != data.numParams())
+		std::cout << __func__ << " Error: wrong number of features" << std::endl;
 
+	switch (modelType)
+	{
+	case LinearRegressionAnalytical:	// THETA = (X^T X)^-1 (X^T Y)
+		//LinRA_optimization();
+		//break;
+	case LinearRegression:				// thetaj = thetaj - (alpha/m) sum((h(xi)-yi) xij)	(i: example) (j: feature)
+		//LinR_optimization();
+		break;
+	case LogisticRegression:			// Like Linear Regression case, but using g(x) instead of h(x)
+		//LogR_optimization();
+		break;
+	default:
+		std::cout << "Non valid combination of ModelType and OptimizationType" << std::endl;
+		// <<< Exception
+		break;
+	}
 }
 
 
